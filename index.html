@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Fear & Greed Index</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@700;800&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0d0d0f;
+      --card: #141416;
+      --border: #222226;
+      --text: #f0f0f0;
+      --muted: #666;
+      --extreme-fear: #e05c5c;
+      --fear: #e8915a;
+      --neutral: #d4c45a;
+      --greed: #7abf6e;
+      --extreme-greed: #4caf7d;
+    }
+
+    body {
+      background: var(--bg);
+      font-family: 'DM Mono', monospace;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 16px;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 28px 32px 24px;
+      width: 100%;
+      max-width: 460px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, var(--extreme-fear), var(--fear), var(--neutral), var(--greed), var(--extreme-greed));
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 24px;
+    }
+
+    .title {
+      font-family: 'Syne', sans-serif;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .updated {
+      font-size: 10px;
+      color: var(--muted);
+      text-align: right;
+    }
+
+    /* Gauge */
+    .gauge-wrap {
+      position: relative;
+      width: 100%;
+      height: 160px;
+      margin-bottom: 8px;
+    }
+
+    .gauge-wrap svg {
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+    }
+
+    .gauge-value {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    .gauge-number {
+      font-family: 'Syne', sans-serif;
+      font-size: 52px;
+      font-weight: 800;
+      line-height: 1;
+      color: var(--text);
+      transition: color 1s ease;
+    }
+
+    .gauge-label {
+      font-size: 11px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      margin-top: 4px;
+      transition: color 1s ease;
+    }
+
+    /* History row */
+    .history {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 4px;
+    }
+
+    .history-item {
+      background: #0d0d0f;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .history-label {
+      font-size: 10px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    .history-val {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .history-num {
+      font-family: 'Syne', sans-serif;
+      font-size: 18px;
+      font-weight: 800;
+      color: var(--text);
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+
+    .loading {
+      text-align: center;
+      color: var(--muted);
+      font-size: 12px;
+      padding: 40px 0;
+      letter-spacing: 0.1em;
+    }
+
+    .error {
+      text-align: center;
+      color: var(--extreme-fear);
+      font-size: 12px;
+      padding: 40px 0;
+    }
+
+    .needle {
+      transform-origin: 50% 100%;
+      transition: transform 1.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="header">
+      <div class="title">Fear &amp; Greed Index</div>
+      <div class="updated" id="updated">로딩 중...</div>
+    </div>
+
+    <div id="content">
+      <div class="loading">데이터 불러오는 중...</div>
+    </div>
+  </div>
+
+  <script>
+    const COLOR = {
+      "Extreme Fear": "#e05c5c",
+      "Fear": "#e8915a",
+      "Neutral": "#d4c45a",
+      "Greed": "#7abf6e",
+      "Extreme Greed": "#4caf7d",
+    };
+
+    const LABEL_KO = {
+      "Extreme Fear": "극단적 공포",
+      "Fear": "공포",
+      "Neutral": "중립",
+      "Greed": "탐욕",
+      "Extreme Greed": "극단적 탐욕",
+    };
+
+    function getColor(label) {
+      return COLOR[label] || "#888";
+    }
+
+    function valueToAngle(val) {
+      // 0 = -90deg (left), 100 = +90deg (right)
+      return -90 + (val / 100) * 180;
+    }
+
+    function buildGaugeSVG(value) {
+      const cx = 115, cy = 115, r = 95;
+      const segments = [
+        { from: 0,  to: 25,  color: "#e05c5c33", stroke: "#e05c5c" },
+        { from: 25, to: 45,  color: "#e8915a33", stroke: "#e8915a" },
+        { from: 45, to: 55,  color: "#d4c45a33", stroke: "#d4c45a" },
+        { from: 55, to: 75,  color: "#7abf6e33", stroke: "#7abf6e" },
+        { from: 75, to: 100, color: "#4caf7d33", stroke: "#4caf7d" },
+      ];
+
+      function polarToXY(deg, radius) {
+        const rad = (deg - 90) * Math.PI / 180;
+        return [cx + radius * Math.cos(rad), cy + radius * Math.sin(rad)];
+      }
+
+      function segmentPath(from, to, r1, r2) {
+        const aFrom = -180 + (from / 100) * 180;
+        const aTo   = -180 + (to   / 100) * 180;
+        const [x1, y1] = polarToXY(aFrom, r1);
+        const [x2, y2] = polarToXY(aTo,   r1);
+        const [x3, y3] = polarToXY(aTo,   r2);
+        const [x4, y4] = polarToXY(aFrom, r2);
+        const large = (to - from) > 50 ? 1 : 0;
+        return `M ${x1} ${y1} A ${r1} ${r1} 0 ${large} 1 ${x2} ${y2} L ${x3} ${y3} A ${r2} ${r2} 0 ${large} 0 ${x4} ${y4} Z`;
+      }
+
+      const needleAngle = -180 + (value / 100) * 180;
+      const [nx, ny] = polarToXY(needleAngle, r - 12);
+
+      const paths = segments.map(s =>
+        `<path d="${segmentPath(s.from, s.to, r, r - 22)}" fill="${s.color}" stroke="${s.stroke}" stroke-width="1" opacity="0.9"/>`
+      ).join('');
+
+      // tick marks
+      const ticks = [0, 25, 50, 75, 100].map(v => {
+        const a = -180 + (v / 100) * 180;
+        const [x1, y1] = polarToXY(a, r - 24);
+        const [x2, y2] = polarToXY(a, r - 30);
+        const [tx, ty] = polarToXY(a, r - 38);
+        return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#444" stroke-width="1.5"/>
+                <text x="${tx}" y="${ty}" fill="#555" font-size="9" text-anchor="middle" dominant-baseline="middle" font-family="DM Mono, monospace">${v}</text>`;
+      }).join('');
+
+      return `
+        <svg viewBox="0 0 230 125" xmlns="http://www.w3.org/2000/svg">
+          ${paths}
+          ${ticks}
+          <g class="needle" style="transform-origin:${cx}px ${cy}px; transform:rotate(${needleAngle + 90}deg)">
+            <line x1="${cx}" y1="${cy}" x2="${cx}" y2="${cy - (r - 14)}" stroke="#f0f0f0" stroke-width="2.5" stroke-linecap="round"/>
+            <circle cx="${cx}" cy="${cy}" r="5" fill="#f0f0f0"/>
+          </g>
+        </svg>`;
+    }
+
+    function historyItem(label, data) {
+      if (!data) return '';
+      const color = getColor(data.value_classification);
+      return `
+        <div class="history-item">
+          <div>
+            <div class="history-label">${label}</div>
+            <div style="font-size:10px; color:${color}; margin-top:2px;">${LABEL_KO[data.value_classification] || data.value_classification}</div>
+          </div>
+          <div class="history-val">
+            <div class="dot" style="background:${color}"></div>
+            <div class="history-num" style="color:${color}">${data.value}</div>
+          </div>
+        </div>`;
+    }
+
+    async function fetchData() {
+      const ENDPOINTS = [
+        'https://api.alternative.me/fng/?limit=30&format=json',
+        'https://corsproxy.io/?url=https://api.alternative.me/fng/?limit=30&format=json',
+        'https://api.allorigins.win/get?url=' + encodeURIComponent('https://api.alternative.me/fng/?limit=30&format=json'),
+      ];
+
+      for (const url of ENDPOINTS) {
+        try {
+          const res = await fetch(url);
+          const raw = await res.json();
+          // allorigins wraps response in { contents: "..." }
+          const json = raw.contents ? JSON.parse(raw.contents) : raw;
+          if (json.data && json.data.length > 0) return json.data;
+        } catch (e) {
+          continue;
+        }
+      }
+      throw new Error('All endpoints failed');
+    }
+
+    async function init() {
+      try {
+        const data = await fetchData();
+        const now       = data[0];
+        const prev      = data[1];
+        const week      = data[6];
+        const month     = data[29] || data[data.length - 1];
+
+        const val = parseInt(now.value);
+        const color = getColor(now.value_classification);
+        const labelKo = LABEL_KO[now.value_classification] || now.value_classification;
+
+        const ts = new Date(parseInt(now.timestamp) * 1000);
+        const dateStr = ts.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+        document.getElementById('updated').innerText = `업데이트: ${dateStr}`;
+
+        document.getElementById('content').innerHTML = `
+          <div class="gauge-wrap">${buildGaugeSVG(val)}</div>
+          <div class="gauge-value">
+            <div class="gauge-number" style="color:${color}">${val}</div>
+            <div class="gauge-label" style="color:${color}">${labelKo}</div>
+          </div>
+          <div class="history">
+            ${historyItem('전일', prev)}
+            ${historyItem('1주일 전', week)}
+            ${historyItem('1개월 전', month)}
+          </div>
+        `;
+      } catch (e) {
+        document.getElementById('content').innerHTML = `<div class="error">데이터를 불러올 수 없습니다.<br>잠시 후 다시 시도해주세요.</div>`;
+        document.getElementById('updated').innerText = '';
+      }
+    }
+
+    init();
+    // 5분마다 자동 갱신
+    setInterval(init, 5 * 60 * 1000);
+  </script>
+</body>
+</html>
